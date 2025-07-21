@@ -1,20 +1,17 @@
 document.addEventListener("DOMContentLoaded", () => {
-  fetch("https://dummyjson.com/products")
+  // Cargar productos desde tu API
+  fetch("http://localhost:8080/api/productos")
     .then((response) => {
-      if (!response || !response.ok) {
-        throw new Error("API DummyJSON no disponible");
+      if (!response.ok) {
+        throw new Error("No se pudo conectar con la API de productos");
       }
       return response.json();
     })
     .then((data) => {
-      if (data && data.products) {
-        cargarProductos(data.products.slice(0, 10)); // Solo mostramos 10 productos
-      } else {
-        throw new Error("Formato inesperado de DummyJSON");
-      }
+      cargarProductos(data);
     })
     .catch((error) =>
-      console.error("Error al obtener productos de DummyJSON", error)
+      console.error("Error al obtener productos del backend", error)
     );
 
   function cargarProductos(data) {
@@ -23,26 +20,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
     data.forEach((producto) => {
       const shortDescription =
-        producto.description.split(" ").slice(0, 5).join(" ") + "...";
+        producto.descripcion.split(" ").slice(0, 5).join(" ") + "...";
 
       productosContainer.innerHTML += `
         <div class="card">
-          <img src="${
-            producto.image || producto.thumbnail
-          }" class="card-img-top" alt="${producto.title}">
+          <img src="${producto.imagenUrl}" class="card-img-top" alt="${producto.nombre}">
           <div class="card-body">
-            <h5 class="card-title">${producto.title}</h5>
+            <h5 class="card-title">${producto.nombre}</h5>
             <p class="card-text short-description">${shortDescription}</p>
-            <p class="card-text full-description" style="display: none;">${
-              producto.description
-            }</p>
+            <p class="card-text full-description" style="display: none;">${producto.descripcion}</p>
             <button class="btn btn-link" onclick="toggleDescription(this)">Ver descripción</button>
-            <p class="card-text">$${producto.price}</p>
-            <button class="btn btn-primary" onclick="addToCart(${
-              producto.id
-            }, '${producto.image || producto.thumbnail}', '${
-        producto.title
-      }', ${producto.price}, this)">Agregar al carrito</button>
+            <p class="card-text">$${producto.precio}</p>
+            <button class="btn btn-primary" onclick="addToCart(${producto.id}, '${producto.imagenUrl}', '${producto.nombre}', ${producto.precio}, this)">Agregar al carrito</button>
           </div>
         </div>
       `;
@@ -60,7 +49,6 @@ document.addEventListener("DOMContentLoaded", () => {
     localStorage.setItem("cart", JSON.stringify(cart));
     updateCartUI();
 
-    // Cambiar el texto del botón
     button.textContent = "Agregado";
     button.disabled = true;
     setTimeout(() => {
@@ -83,7 +71,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  // FUNCIÓN UPDATECARTUI PARA MOSTRAR TARJETAS
   function updateCartUI() {
     const cart = JSON.parse(localStorage.getItem("cart")) || [];
     const carritoItems = document.getElementById("carrito-items");
@@ -103,18 +90,10 @@ document.addEventListener("DOMContentLoaded", () => {
             <img src="${item.image}" alt="${item.title}">
             <div class="card-body">
               <h6 class="card-title">${item.title}</h6>
-              <p class="card-text">Cantidad: <strong>${
-                item.quantity
-              }</strong></p>
+              <p class="card-text">Cantidad: <strong>${item.quantity}</strong></p>
               <p class="card-text">Precio unitario: ${item.price}</p>
-              <p class="card-text">Subtotal: <strong>${(
-                item.price * item.quantity
-              ).toFixed(2)}</strong></p>
-              <button class="btn btn-sm btn-danger" onclick="removeFromCart(${
-                item.id
-              })">
-                Eliminar
-              </button>
+              <p class="card-text">Subtotal: <strong>${(item.price * item.quantity).toFixed(2)}</strong></p>
+              <button class="btn btn-sm btn-danger" onclick="removeFromCart(${item.id})">Eliminar</button>
             </div>
           </li>
         `;
@@ -128,9 +107,12 @@ document.addEventListener("DOMContentLoaded", () => {
       (sum, item) => sum + item.quantity,
       0
     );
+    document.getElementById("cart-counter-nav").textContent = cart.reduce(
+      (sum, item) => sum + item.quantity,
+      0
+    );
   }
 
-  // FUNCIÓN PARA ELIMINAR PRODUCTOS INDIVIDUALES
   window.removeFromCart = function (id) {
     let cart = JSON.parse(localStorage.getItem("cart")) || [];
     cart = cart.filter((item) => item.id !== id);
@@ -143,7 +125,6 @@ document.addEventListener("DOMContentLoaded", () => {
     updateCartUI();
   });
 
-  // FUNCIONALIDAD PARA REALIZAR COMPRA
   document.getElementById("realizar-compra").addEventListener("click", () => {
     const cart = JSON.parse(localStorage.getItem("cart")) || [];
     if (cart.length === 0) {
@@ -151,21 +132,41 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const total = cart.reduce(
-      (sum, item) => sum + item.price * item.quantity,
-      0
-    );
-    document.getElementById("modal-total").textContent = total.toFixed(2);
+    const pedido = {
+      lineas: cart.map((item) => ({
+        productoId: item.id,
+        cantidad: item.quantity,
+      })),
+    };
 
-    // Mostrar el modal
-    const modal = new bootstrap.Modal(
-      document.getElementById("compraExitosaModal")
-    );
-    modal.show();
-
-    // Limpiar el carrito después de la compra
-    localStorage.clear();
-    updateCartUI();
+    fetch("http://localhost:8080/api/pedidos", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(pedido),
+    })
+      .then((response) => {
+        if (!response.ok) {
+          return response.text().then((msg) => {
+            throw new Error(msg);
+          });
+        }
+        return response.json();
+      })
+      .then((data) => {
+        const total = data.total || 0;
+        document.getElementById("modal-total").textContent = total.toFixed(2);
+        const modal = new bootstrap.Modal(
+          document.getElementById("compraExitosaModal")
+        );
+        modal.show();
+        localStorage.clear();
+        updateCartUI();
+      })
+      .catch((error) => {
+        alert(`Error al realizar el pedido: ${error.message}`);
+      });
   });
 
   updateCartUI();
